@@ -1,0 +1,3 @@
+asgiref
+splunk-sdk
+starlette<0.50.0

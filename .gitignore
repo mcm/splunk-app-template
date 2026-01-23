@@ -1,0 +1,27 @@
+# Local
+.DS_Store
+*.local
+*.log*
+.dev
+
+# Dist
+.pnpm-store/
+node_modules
+dist/
+
+# Profile
+.rspack-profile-*/
+
+# IDE
+.vscode
+!.vscode/extensions.json
+.idea
+
+# Python
+.venv/
+__pycache__/
+api_test.py
+resources/splunk/default/data/investigations/
+.mypy_cache/
+test.py
+bin.tmp/

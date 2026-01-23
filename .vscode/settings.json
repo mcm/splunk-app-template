@@ -1,0 +1,5 @@
+{
+  "python.analysis.extraPaths": ["${workspaceFolder}/resources/splunk/bin"],
+  "python.autoComplete.extraPaths": ["${workspaceFolder}/resources/splunk/bin"],
+  "python.analysis.exclude": ["**/dist/**"]
+}

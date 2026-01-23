@@ -1,0 +1,38 @@
+{
+  "name": "splunk-react18-asgi",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "rsbuild build",
+    "dev": "rsbuild dev",
+    "rsbuild_shell": "docker compose exec -itu node rsbuild bash",
+    "splunk_shell": "docker compose exec -itu splunk splunkdev bash",
+    "splunkd_log": "docker compose exec -itu splunk splunkdev tail -f var/log/splunk/splunkd.log"
+  },
+  "dependencies": {
+    "@splunk/react-page": "8.2.0-beta.1",
+    "@splunk/splunk-utils": "^3.3.0",
+    "@tabler/icons-react": "^3.35.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^3.3.1"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "^1.7.2",
+    "@rsbuild/plugin-react": "^1.4.3",
+    "@rspack/cli": "^1.7.3",
+    "@rspack/core": "^1.7.3",
+    "@tailwindcss/postcss": "^4.1.16",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "tailwindcss": "^4.1.16",
+    "typescript": "^5.9.3"
+  },
+  "splunkApp": {
+    "appId": "splunk-react18-asgi",
+    "appTitle": "Splunk React 18 / ASGI Template",
+    "appResourcesRoot": "./resources/splunk"
+  }
+}
