@@ -8,7 +8,10 @@
     "useDefineForClassFields": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      /* Your app's own frontend code. */
+      "@/*": ["./frontend/*"],
+      /* The template's runtime - not app code, and not somewhere you normally edit. */
+      "@splunkapp/*": ["./splunkapp/*"]
     },
     /* modules */
     "module": "ESNext",
@@ -24,5 +27,5 @@
     "noUnusedParameters": true
     // "exactOptionalPropertyTypes": true
   },
-  "include": ["src"]
+  "include": ["frontend", "splunkapp"]
 }

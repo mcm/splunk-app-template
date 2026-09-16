@@ -21,7 +21,7 @@ dist/
 .venv/
 __pycache__/
 api_test.py
-resources/splunk/default/data/investigations/
+resources/default/data/investigations/
 .mypy_cache/
 test.py
 bin.tmp/

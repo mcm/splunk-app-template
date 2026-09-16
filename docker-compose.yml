@@ -4,35 +4,8 @@ networks:
     attachable: true
 
 services:
-  # rsbuild:
-  #   image: node:22
-  #   hostname: rsbuild
-  #   working_dir: /app
-  #   environment:
-  #     - "PNPM_HOME=/app/node_modules/"
-  #     - "PNPM_STORE_PATH=/app/node_modules/.pnpm-store"
-  #   command:
-  #     - bash
-  #     - -c
-  #     - >
-  #       groupmod -g 41812 node &&
-  #       usermod -u 41812 -g 41812 node &&
-  #       npm install -g pnpm@latest-10 &&
-  #       chown -R 41812:41812 dist node_modules &&
-  #       su - node -c "
-  #         cd /app &&
-  #         set -x &&
-  #         pnpm install --store-dir $$PNPM_STORE_PATH &&
-  #         pnpm run dev
-  #       "
-  #   ports:
-  #     - 3001:3000
-  #   volumes:
-  #     - ./:/app
-  #     - splunk-app-dist:/app/dist
-  #     - pnpm-node-modules:/app/node_modules
   rsbuild:
-    image: splunk/splunk:latest
+    image: splunk/splunk:10.4.2
     hostname: rsbuild
     working_dir: /app
     environment:
@@ -40,22 +13,25 @@ services:
       - "PNPM_STORE_PATH=/app/node_modules/.pnpm-store"
     entrypoint: []
     user: root
+    # This service reuses the Splunk image only to get Splunk's Python; it does not run
+    # splunkd, so the image's inherited healthcheck would always report unhealthy.
+    healthcheck:
+      disable: true
     command:
       - bash
       - -c
       - >
+        microdnf install -y libatomic &&
         chown -R splunk:splunk dist node_modules &&
-        sudo -u splunk bash -c "
+        sudo -u splunk PNPM_STORE_PATH="$$PNPM_STORE_PATH" bash -c "
           curl -fsSL https://get.pnpm.io/install.sh | sh - &&
           export SPLUNK_HOME=/opt/splunk &&
-          export PATH=/home/splunk/.local/share/pnpm:/opt/splunk/bin:$$PATH &&
-          export NODE_PATH=/opt/splunk/lib/node_modules &&
+          export PATH=/home/splunk/.local/share/pnpm/bin:/home/splunk/.local/share/pnpm:/opt/splunk/bin:$$PATH &&
           export LD_LIBRARY_PATH=/opt/splunk/opt/jemalloc-4k-nostats/lib:/opt/splunk/lib &&
-          cd /app && 
-          set -x && 
-          python3.9 -m venv /home/splunk/rsbuild-venv &&
-          source /home/splunk/rsbuild-venv/bin/activate &&
-          pnpm install --store-dir $$PNPM_STORE_PATH && 
+          cd /app &&
+          set -x &&
+          pnpm env use --global lts &&
+          pnpm install --store-dir \$$PNPM_STORE_PATH &&
           pnpm run dev
         "
     ports:
@@ -65,28 +41,66 @@ services:
       - splunk-app-dist:/app/dist
       - pnpm-node-modules:/app/node_modules
 
-  splunkdev:
-    image: splunk/splunk:latest
+  splunkdev-10-0:
+    image: splunk/splunk:10.0
     hostname: splunk
     environment:
       - "SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com"
       - "SPLUNK_START_ARGS=--accept-license"
       - "SPLUNK_PASSWORD=Temp1234!"
     ports:
-      - 8001:8000
+      - 8000:8000
       # - 8089:8089
     volumes:
-      - splunk-etc:/opt/splunk/etc
-      # Change YOUR_APP_ID_HERE to your app ID
-      - splunk-app-dist:/opt/splunk/etc/apps/splunk-react18-asgi
-      # Uncomment this line to keep app local separate from dist.
-      # NOTE! This shouldn't be necessary as rsbuild SHOULD preserve local
-      # - splunk-app-local:/opt/splunk/etc/apps/splunk-react18-asgi/local
+      - splunk-etc-10-0:/opt/splunk/etc
+      # This path's last segment MUST match `splunkApp.appId` in package.json.
+      - splunk-app-dist:/opt/splunk/etc/apps/my_splunk_app
+      - splunk-app-local-10-0:/opt/splunk/etc/apps/my_splunk_app/local
+      # Uncomment out the following line to use a custom Splunk license instead of a trial
+      # - ./.dev/splunk.lic:/opt/splunk/etc/licenses/enterprise/splunk.lic
+
+  splunkdev-10-2:
+    image: splunk/splunk:10.2
+    hostname: splunk
+    environment:
+      - "SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com"
+      - "SPLUNK_START_ARGS=--accept-license"
+      - "SPLUNK_PASSWORD=Temp1234!"
+    ports:
+      - 8002:8000
+      # - 8089:8089
+    volumes:
+      - splunk-etc-10-2:/opt/splunk/etc
+      # This path's last segment MUST match `splunkApp.appId` in package.json.
+      - splunk-app-dist:/opt/splunk/etc/apps/my_splunk_app
+      - splunk-app-local-10-2:/opt/splunk/etc/apps/my_splunk_app/local
+      # Uncomment out the following line to use a custom Splunk license instead of a trial
+      # - ./.dev/splunk.lic:/opt/splunk/etc/licenses/enterprise/splunk.lic
+
+  splunkdev-10-4:
+    image: splunk/splunk:10.4
+    hostname: splunk
+    environment:
+      - "SPLUNK_GENERAL_TERMS=--accept-sgt-current-at-splunk-com"
+      - "SPLUNK_START_ARGS=--accept-license"
+      - "SPLUNK_PASSWORD=Temp1234!"
+    ports:
+      - 8004:8000
+      # - 8089:8089
+    volumes:
+      - splunk-etc-10-4:/opt/splunk/etc
+      # This path's last segment MUST match `splunkApp.appId` in package.json.
+      - splunk-app-dist:/opt/splunk/etc/apps/my_splunk_app
+      - splunk-app-local-10-4:/opt/splunk/etc/apps/my_splunk_app/local
       # Uncomment out the following line to use a custom Splunk license instead of a trial
       # - ./.dev/splunk.lic:/opt/splunk/etc/licenses/enterprise/splunk.lic
 
 volumes:
   splunk-app-dist: {}
   pnpm-node-modules: {}
-  splunk-etc: {}
-  splunk-app-local: {}
+  splunk-etc-10-0: {}
+  splunk-app-local-10-0: {}
+  splunk-etc-10-2: {}
+  splunk-app-local-10-2: {}
+  splunk-etc-10-4: {}
+  splunk-app-local-10-4: {}

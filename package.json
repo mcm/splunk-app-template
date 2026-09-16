@@ -1,26 +1,36 @@
 {
-  "name": "splunk-react18-asgi",
+  "name": "splunk-app-template",
   "version": "1.0.0",
+  "description": "A Splunk app built from the Splunk app template",
+  "author": "Spico Solutions",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "rsbuild build",
     "dev": "rsbuild dev",
-    "rsbuild_shell": "docker compose exec -itu node rsbuild bash",
-    "splunk_shell": "docker compose exec -itu splunk splunkdev bash",
-    "splunkd_log": "docker compose exec -itu splunk splunkdev tail -f var/log/splunk/splunkd.log"
+    "package": "node scripts/package-app.mjs",
+    "rsbuild_shell": "docker compose exec -itu splunk rsbuild bash",
+    "splunk_shell": "docker compose exec -itu splunk splunkdev-10-4 bash",
+    "splunkd_log": "docker compose exec -itu splunk splunkdev-10-4 tail -f var/log/splunk/splunkd.log",
+    "job_log": "docker compose exec -itu splunk splunkdev-10-4 tail -f var/log/splunk/my_splunk_app.log"
   },
   "dependencies": {
-    "@splunk/react-page": "8.2.0-beta.1",
+    "@splunk/react-page": "8.3.1",
     "@splunk/splunk-utils": "^3.3.0",
     "@tabler/icons-react": "^3.35.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "radix-ui": "^1.6.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "tailwind-merge": "^3.3.1"
+    "tailwind-merge": "^3.3.1",
+    "vue": "^3.5.13"
   },
   "devDependencies": {
     "@rsbuild/core": "^1.7.2",
     "@rsbuild/plugin-react": "^1.4.3",
+    "@rsbuild/plugin-vue": "^1.1.1",
     "@rspack/cli": "^1.7.3",
     "@rspack/core": "^1.7.3",
     "@tailwindcss/postcss": "^4.1.16",
@@ -31,8 +41,27 @@
     "typescript": "^5.9.3"
   },
   "splunkApp": {
-    "appId": "splunk-react18-asgi",
-    "appTitle": "Splunk React 18 / ASGI Template",
-    "appResourcesRoot": "./resources/splunk"
+    "appId": "my_splunk_app",
+    "appTitle": "My Splunk App",
+    "appResourcesRoot": "./resources",
+    "appBackendRoot": "./backend",
+    "minSplunkVersion": "10.0",
+    "targetPythonVersion": "3.9",
+    "targetPlatform": "manylinux2014_x86_64",
+    "defaultIcon": "circlesfour",
+    "views": {
+      "home": {
+        "label": "Home",
+        "icon": "house",
+        "default": true
+      }
+    },
+    "handlers": {
+      "api": "./backend/api.py"
+    },
+    "jobs": {
+      "collect": "./backend/jobs.py",
+      "prune": "./backend/jobs.py"
+    }
   }
 }

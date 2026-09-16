@@ -201,9 +201,24 @@ class ConnectionHandler:
             await asgi(app)
             await asgi.response.done.wait()
 
+            # The persistent-connection response envelope is JSON, and a JSON string
+            # cannot carry arbitrary bytes. Text bodies go back as `payload`; anything
+            # that is not valid UTF-8 (a file download, an image, a generated xlsx) goes
+            # back base64-encoded as `payload_base64`, which splunkd decodes before
+            # writing to the client.
+            #
+            # `payload_base64` is documented in restmap.conf.spec only for the request
+            # direction, but splunkd honours it on responses too - verified byte-for-byte
+            # against Splunk 10.4.2. Decoding unconditionally (the previous behaviour)
+            # raised UnicodeDecodeError and killed this handler process.
+            try:
+                body = {"payload": asgi.response.body.decode()}
+            except UnicodeDecodeError:
+                body = {"payload_base64": base64.b64encode(asgi.response.body).decode("ascii")}
+
             response = {
                 "status": asgi.response.status,
-                "payload": asgi.response.body.decode(),
+                **body,
                 "headers": dict(
                     [
                         (k.decode(), v.decode())
@@ -233,6 +248,15 @@ class ConnectionHandler:
 
 @dataclass
 class Response:
+    """Accumulates an ASGI response.
+
+    NOTE: there is no streaming. Splunk's persistent-connection protocol returns one
+    response envelope per request, so every `http.response.body` chunk is buffered here
+    until `more_body` is False and the whole body is sent at once. A StreamingResponse
+    still works, but it is fully materialised in memory first - avoid it for large or
+    unbounded payloads.
+    """
+
     status: int = 200
     headers: list[tuple[bytes, bytes]] = field(default_factory=list)
     body: bytes = b""
