@@ -396,6 +396,24 @@ Things worth knowing:
   Convert milliseconds to seconds — Splunk will cheerfully date an event to the year 58,500.
 - **`upsert` takes an explicit key**, so a repeated collection overwrites rather than
   accumulating duplicates.
+- **Bulk writes use `batch_upsert`.** `upsert` is one or two requests per record. For
+  thousands of records, `store.batch_upsert((key, model) for ...)` sends them through KV store's
+  `batch_save` in batches bounded by both document count and serialised size, and accepts a
+  generator so nothing beyond one batch is held in memory.
+- **`delete_where(filter)`** deletes every match in one request. Use `delete_where({"_key": k})`
+  for keys containing `/`. An empty filter raises rather than deleting the whole collection.
+- **Indexes are declared with the collection:**
+
+  ```python
+  FINDINGS = collection(
+      Finding,
+      name="findings",
+      accelerated_fields={"by_status": {"status": 1, "severity": -1}},
+  )
+  ```
+
+  Each entry becomes `accelerated_fields.<name>` in `collections.conf`. Field names are checked
+  against the model at build time, because KV store happily indexes a field that does not exist.
 
 ## Backend Architecture
 

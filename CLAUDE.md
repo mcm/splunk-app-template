@@ -136,7 +136,14 @@ either direction.
   source has its own event time, and convert milliseconds to seconds — Splunk will cheerfully date an
   event to the year 58,500
 - A job runs as `splunk-system-user` with admin and has **no user context**, unlike a REST route
-- `upsert` takes an explicit key, so a repeated collection overwrites rather than duplicating
+- `upsert` takes an explicit key, so a repeated collection overwrites rather than duplicating.
+  It costs one or two requests per record — for bulk data use `batch_upsert(pairs)`, which sends
+  `(key, value)` pairs through `batch_save` in batches bounded by count (1000) and size
+- `delete_where(filter)` deletes by query in one request, and is the safe way to delete a key
+  containing `/`. An empty filter is refused — KV store reads that as "delete everything"
+- `collection(..., accelerated_fields={"by_status": {"status": 1, "severity": -1}})` declares KV
+  store indexes; field names are checked against the model at build time. Each index is
+  maintained on every write, so accelerate only what queries filter or sort on
 - `collections.conf` field types come from the model's annotations. Only `number`, `bool`, `string` and
   `time` exist; a list-of-object field stores fine but is invisible to SPL — the build warns
 

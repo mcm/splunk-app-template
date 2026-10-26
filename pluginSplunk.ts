@@ -413,6 +413,8 @@ type CollectionDescription = {
   name: string;
   fields: Record<string, string>;
   lookup: boolean;
+  // Absent from a runtime that predates accelerations, hence optional.
+  accelerated_fields?: Record<string, Record<string, number>>;
   undeclarable: string[];
 };
 
@@ -559,6 +561,11 @@ const makeCollectionsConf = (collections: CollectionDescription[]) => {
     sections.push('enforceTypes = true');
     for (const [fieldName, fieldType] of Object.entries(declared.fields)) {
       sections.push(`field.${fieldName} = ${fieldType}`);
+    }
+    // KV store parses each value as JSON - `{"status": 1, "severity": -1}` - with key order
+    // significant, which JSON.stringify preserves from the Python dict.
+    for (const [name, spec] of Object.entries(declared.accelerated_fields || {})) {
+      sections.push(`accelerated_fields.${name} = ${JSON.stringify(spec)}`);
     }
     sections.push('');
   }

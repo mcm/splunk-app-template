@@ -216,6 +216,7 @@ class Collection:
     model: Any
     name: str
     lookup: bool = False
+    accelerated_fields: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     def fields(self) -> Dict[str, str]:
         """Declared field types, derived from the model's annotations."""
@@ -243,17 +244,72 @@ class Collection:
 _COLLECTIONS = []  # type: List[Collection]
 
 
-def collection(model: Any, name: Optional[str] = None, lookup: bool = False) -> Collection:
+def _validate_accelerated_fields(
+    model: Any, accelerated_fields: Dict[str, Dict[str, int]]
+) -> Dict[str, Dict[str, int]]:
+    """Check accelerations against the model at decoration (and therefore build) time.
+
+    KV store accepts an acceleration on a field that does not exist and simply builds a useless
+    index, so a typo costs write throughput and buys nothing - with no error anywhere.
+    """
+    known = set(model.model_fields) | {"_key", "_user"}
+    for acceleration, spec in accelerated_fields.items():
+        if not re.match(r"^[A-Za-z0-9_]+$", acceleration):
+            raise ValueError(
+                "accelerated_fields name %r must be alphanumeric/underscore; it becomes the "
+                "collections.conf key accelerated_fields.<name>." % acceleration
+            )
+        if not spec:
+            raise ValueError("accelerated_fields[%r] names no fields" % acceleration)
+        for field_name, direction in spec.items():
+            if field_name not in known:
+                raise ValueError(
+                    "accelerated_fields[%r] refers to %r, which is not a field of %s"
+                    % (acceleration, field_name, model.__name__)
+                )
+            if direction not in (1, -1):
+                raise ValueError(
+                    "accelerated_fields[%r][%r] must be 1 (ascending) or -1 (descending)"
+                    % (acceleration, field_name)
+                )
+    return dict(accelerated_fields)
+
+
+def collection(
+    model: Any,
+    name: Optional[str] = None,
+    lookup: bool = False,
+    accelerated_fields: Optional[Dict[str, Dict[str, int]]] = None,
+) -> Collection:
     """Declare a KV store collection backed by a Pydantic model.
 
     `lookup=True` additionally generates a `transforms.conf` lookup definition, so the
     collection is usable from SPL as `| lookup <name>_lookup ...`. It is opt-in because most
     collections are app state that never needs to appear in a search.
+
+    `accelerated_fields` declares KV store indexes, as `{name: {field: 1 | -1, ...}}`:
+
+        collection(Finding, accelerated_fields={"by_status": {"status": 1, "severity": 1}})
+
+    Each becomes an `accelerated_fields.<name>` line in collections.conf. Accelerate the fields
+    queries filter or sort on; every acceleration is also maintained on every write, so do not
+    accelerate fields nothing queries by.
     """
-    declared = Collection(model=model, name=name or model.__name__.lower(), lookup=lookup)
+    declared = Collection(
+        model=model,
+        name=name or model.__name__.lower(),
+        lookup=lookup,
+        accelerated_fields=_validate_accelerated_fields(model, accelerated_fields or {}),
+    )
     _COLLECTIONS.append(declared)
     return declared
 
+
+# KV store's own limits on a single batch_save (limits.conf [kvstore]
+# max_documents_per_batch_save and max_size_per_batch_save_mb). The byte budget is kept well
+# under the 50MB default so that one oversized batch is never the thing that finds the limit.
+_BATCH_MAX_DOCUMENTS = 1000
+_BATCH_MAX_BYTES = 16 * 1024 * 1024
 
 # KV store starts up well after splunkd accepts connections, and until it does every request
 # to it fails with 503. This matters because a `seconds=` job fires the moment Splunk registers
@@ -345,8 +401,71 @@ class BoundCollection:
             _await_kvstore(lambda: self._store.update(key, json.dumps(document)), self._log)
         return key
 
+    def batch_upsert(
+        self,
+        items: Iterable[Tuple[str, Any]],
+        batch_size: int = _BATCH_MAX_DOCUMENTS,
+        max_bytes: int = _BATCH_MAX_BYTES,
+    ) -> int:
+        """Insert or replace many records, as `(key, value)` pairs. Returns how many were written.
+
+        Uses KV store's `batch_save`, which upserts by `_key` in one request per batch -
+        `upsert` costs one or two requests per record, which is fine for app state and
+        unusable for bulk data. Batches are bounded by both document count and serialised size,
+        since a few large documents can exceed the size limit long before the count limit.
+
+        `items` may be any iterable, including a generator; nothing beyond one batch is held.
+        """
+        from splunklib.client import KVStoreCollectionData
+
+        batch_size = max(1, min(batch_size, _BATCH_MAX_DOCUMENTS))
+        written = 0
+        pending = []  # type: List[str]
+        pending_bytes = 2  # the enclosing []
+
+        def flush() -> None:
+            body = "[" + ",".join(pending) + "]"
+            _await_kvstore(
+                lambda: self._store._post(
+                    "batch_save", headers=KVStoreCollectionData.JSON_HEADER, body=body
+                ),
+                self._log,
+            )
+
+        for key, value in items:
+            document = value.model_dump(mode="json") if hasattr(value, "model_dump") else dict(value)
+            document["_key"] = key
+            # Serialised once, here: the size check and the request body are the same bytes.
+            serialised = json.dumps(document, separators=(",", ":"), default=str)
+            size = len(serialised.encode("utf-8")) + 1
+            if pending and (len(pending) >= batch_size or pending_bytes + size > max_bytes):
+                flush()
+                written += len(pending)
+                pending, pending_bytes = [], 2
+            pending.append(serialised)
+            pending_bytes += size
+
+        if pending:
+            flush()
+            written += len(pending)
+        return written
+
     def delete(self, key: str) -> None:
         _await_kvstore(lambda: self._store.delete_by_id(key), self._log)
+
+    def delete_where(self, filter: Dict[str, Any]) -> None:
+        """Delete every record matching a KV store filter, in one request.
+
+        Also the safe way to delete by a key containing `/` or other characters that a URL
+        path segment mangles: `delete_where({"_key": key})`.
+
+        An empty filter is refused rather than passed through - KV store treats a DELETE with
+        no query as "delete the whole collection".
+        """
+        if not filter:
+            raise ValueError("delete_where requires a non-empty filter; it would delete everything")
+        query = json.dumps(filter)
+        _await_kvstore(lambda: self._store.delete(query=query), self._log)
 
 
 # --------------------------------------------------------------------------------------
@@ -577,6 +696,7 @@ def describe() -> Dict[str, Any]:
                 "name": declared.name,
                 "fields": declared.fields(),
                 "lookup": declared.lookup,
+                "accelerated_fields": declared.accelerated_fields,
                 "undeclarable": declared.undeclarable(),
             }
             for declared in _COLLECTIONS
