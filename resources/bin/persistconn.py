@@ -332,7 +332,12 @@ class Request:
             self.headers.append((b"x-splunk-rest-uri-host", self.server[0].encode()))
             self.headers.append((b"x-splunk-rest-uri-port", str(self.server[1]).encode()))
 
-            self.query = urlencode(dict(self.parsed_packet_block["query"])).encode()
+            # splunkd sends the query as [name, value] pairs. Encode them as pairs, not through a
+            # dict: `?status=A&status=B` is how a repeated parameter (a FastAPI `List[str]`
+            # query) arrives, and a dict silently keeps only the last value.
+            self.query = urlencode(
+                [(name, value) for name, value in self.parsed_packet_block["query"]]
+            ).encode()
 
             if payload := self.parsed_packet_block.get("payload_base64"):
                 self.body = base64.b64decode(payload.encode())
