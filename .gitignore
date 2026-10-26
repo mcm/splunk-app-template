@@ -8,6 +8,7 @@
 .pnpm-store/
 node_modules
 dist/
+dist-package/
 
 # Profile
 .rspack-profile-*/
