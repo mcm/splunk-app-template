@@ -400,6 +400,9 @@ Things worth knowing:
   thousands of records, `store.batch_upsert((key, model) for ...)` sends them through KV store's
   `batch_save` in batches bounded by both document count and serialised size, and accepts a
   generator so nothing beyond one batch is held in memory.
+- **`get_many(keys, fields=[...])`** reads up to 1000 records per request via `batch_find`,
+  for comparing a batch of incoming data against what is stored before writing it.
+  **`iter_records(filter, fields)`** streams raw records, `_key` included, a page at a time.
 - **`delete_where(filter)`** deletes every match in one request. Use `delete_where({"_key": k})`
   for keys containing `/`. An empty filter raises rather than deleting the whole collection.
 - **Indexes are declared with the collection:**

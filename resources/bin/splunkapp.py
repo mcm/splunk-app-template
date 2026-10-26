@@ -378,6 +378,70 @@ class BoundCollection:
         )
         return [self._declared.model(**record) for record in records]
 
+    def get_many(
+        self, keys: Iterable[str], fields: Optional[List[str]] = None, chunk_size: int = 1000
+    ) -> Dict[str, Any]:
+        """Fetch many records by key in as few requests as possible, as `{key: record}`.
+
+        Missing keys are simply absent from the result. With `fields`, only those fields are
+        returned and records come back as plain dicts rather than models - a projection is
+        usually missing required fields, so it cannot be validated as one. Projecting is worth
+        it when comparing incoming data against what is stored: it keeps the response small.
+
+        Uses `batch_find`, a POST, so the key list never ends up in a URL.
+        """
+        from splunklib.client import KVStoreCollectionData
+
+        found = {}  # type: Dict[str, Any]
+        keys = list(keys)
+        # batch_find takes a Mongo-style projection object; the comma-separated string the GET
+        # query endpoint takes, or a list, is rejected with "'fields' argument is invalid".
+        projection = {name: 1 for name in sorted(set(fields) | {"_key"})} if fields else None
+        for start in range(0, len(keys), max(1, chunk_size)):
+            chunk = keys[start:start + chunk_size]
+            query = {"query": {"_key": {"$in": chunk}}, "limit": len(chunk)}
+            if projection:
+                query["fields"] = projection
+            body = json.dumps([query])
+            response = _await_kvstore(
+                lambda: self._store._post(
+                    "batch_find", headers=KVStoreCollectionData.JSON_HEADER, body=body
+                ),
+                self._log,
+            )
+            for record in json.loads(response.body.read().decode("utf-8"))[0]:
+                key = record.get("_key")
+                found[key] = record if projection else self._declared.model(**record)
+        return found
+
+    def iter_records(
+        self,
+        filter: Optional[Dict[str, Any]] = None,
+        fields: Optional[List[str]] = None,
+        page_size: int = 10000,
+    ) -> Iterable[Dict[str, Any]]:
+        """Stream every matching record as a raw dict, `_key` included, a page at a time.
+
+        `query` returns models, which drop `_key`; this is for when the key is the point -
+        reconciling a collection against an external source, or exporting it. Pages are sorted
+        by `_key` so that paging is stable, but records written or deleted while iterating can
+        still shift later pages - do not modify the records being iterated.
+        """
+        projection = ",".join(sorted(set(fields) | {"_key"})) if fields else None
+        skip = 0
+        while True:
+            options = {"sort": "_key", "limit": page_size, "skip": skip}  # type: Dict[str, Any]
+            if filter:
+                options["query"] = json.dumps(filter)
+            if projection:
+                options["fields"] = projection
+            page = _await_kvstore(lambda: self._store.query(**options), self._log)
+            for record in page:
+                yield record
+            if len(page) < page_size:
+                return
+            skip += page_size
+
     def upsert(self, key: str, value: Any) -> str:
         """Insert or replace the record at `key`.
 
