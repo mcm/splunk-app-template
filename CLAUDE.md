@@ -190,6 +190,11 @@ Add Python dependencies to `requirements.txt`, and **build under Splunk's own in
 (`docker compose up`): pip resolves against whatever interpreter runs the build, so a host build can
 silently bundle packages that cannot import under 3.9.
 
+To alter a bundled package before it ships, point `splunkApp.libPostInstall` at a Python script:
+it runs after both install passes with `lib/`'s path as its argument, and a non-zero exit fails
+the build. Make it assert on the exact text it replaces, so a version bump that moves the code
+breaks the build instead of shipping unpatched.
+
 `dist/` is **not submittable** — it is what Splunk mounts and runs, so it accumulates
 `metadata/local.meta`, `local/` and `__pycache__`, each a hard App Inspect failure. Use `pnpm package`,
 which stages `dist/`, strips those, and tars it with the app id as the single top-level directory.

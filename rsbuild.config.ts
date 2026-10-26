@@ -45,6 +45,7 @@ const splunkApp = packageJson.splunkApp as typeof packageJson.splunkApp & {
   handlers?: Record<string, string | { script: string; app?: string }>;
   jobs?: Record<string, string>;
   jobScheme?: string;
+  libPostInstall?: string;
 };
 
 export default defineConfig({
@@ -107,6 +108,7 @@ export default defineConfig({
       handlers: splunkApp.handlers,
       jobs: splunkApp.jobs,
       jobScheme: splunkApp.jobScheme,
+      libPostInstall: splunkApp.libPostInstall,
       defaultIcon: splunkApp.defaultIcon,
       minSplunkVersion: splunkApp.minSplunkVersion,
     }),

@@ -83,7 +83,14 @@ try {
   // System tar rather than a bundled implementation: it is present everywhere this build already
   // runs, and it gets file modes and symlinks right without any extra dependency.
   await new Promise((resolve, reject) => {
-    const child = spawn("tar", ["-czf", archive, "-C", staging, appId], { stdio: "inherit" });
+    // COPYFILE_DISABLE stops macOS's bsdtar adding an AppleDouble `._<name>` entry beside every
+    // file that carries extended attributes - including one OUTSIDE the app directory, which
+    // App Inspect fails twice over (prohibited files, and files outside the app). Other tars
+    // ignore it.
+    const child = spawn("tar", ["-czf", archive, "-C", staging, appId], {
+      stdio: "inherit",
+      env: { ...process.env, COPYFILE_DISABLE: "1" },
+    });
     child.on("error", reject);
     child.on("exit", (code) =>
       code === 0 ? resolve() : reject(new Error(`tar exited with code ${code}`))

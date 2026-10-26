@@ -75,6 +75,15 @@ export type PluginSplunkOptions = {
    * `bin/<scheme>.py` and the `[<scheme>://<job>]` stanza prefix in `inputs.conf`.
    */
   jobScheme?: string;
+  /**
+   * A Python script run after the app's dependencies are installed into `lib/`, with the build's
+   * interpreter and the path of that `lib/` directory as its only argument. For the rare package
+   * that must be altered before it can ship - botocore's client-side monitoring opens a UDP
+   * socket, which Splunk Cloud vetting rejects outright, and the fix is to stub it out exactly as
+   * the Splunk Add-on for AWS does. A non-zero exit fails the build, so a patch that no longer
+   * applies after a version bump is noticed rather than silently skipped.
+   */
+  libPostInstall?: string;
   /** Human-readable app name, used in generated scheme XML and spec files. */
   appTitle?: string;
   /**
@@ -1356,6 +1365,21 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
                 `--upgrade ${distribution.name}==${distribution.version}`
               );
             }
+          }
+
+          // After both passes, so the script sees exactly the files that will ship.
+          if (options.libPostInstall) {
+            const script = path.resolve(api.context.rootPath, options.libPostInstall);
+            if (!existsSync(script)) {
+              throw new Error(
+                `[splunk-plugin] splunkApp.libPostInstall names "${options.libPostInstall}", but no ` +
+                `such file exists.`
+              );
+            }
+            execSync(`${pythonBin} ${JSON.stringify(script)} ${JSON.stringify(libDir)}`, {
+              stdio: 'inherit',
+              env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+            });
           }
 
           const packageFiles = readdirSync(temporaryDirectory, { recursive: true, withFileTypes: true });
