@@ -89,7 +89,9 @@ before Python saw it.
 
 ## Backend endpoints
 
-Ordinary FastAPI in `backend/`, running under **Python 3.9**. Register each module in
+Ordinary FastAPI in `backend/`, running under `targetPythonVersion` (default **3.9**; the build
+sets `python.required` on the handler's `[script:...]` stanza, without which 10.2+ runs persistent
+handlers under 3.9 regardless). Register each module in
 `package.json` under `splunkApp.handlers` — `{"api": "./backend/api.py"}` — mirroring
 `source.entry`. The key names the `[script:...]` stanza; the value's module must expose an ASGI
 app called `app` (or name it: `{"api": {"script": "./backend/api.py", "app": "application"}}`).

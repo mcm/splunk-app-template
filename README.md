@@ -436,8 +436,9 @@ React → Splunk Web → web.conf (expose) → restmap.conf (match) → persistc
 `root_path` *is* the `match` prefix — the build derives one from the other — so route decorators
 stay short: `@app.get("/d6")` serves `/services/my_splunk_app/d6`.
 
-**Python version:** these handlers run under Python 3.9. Splunk 10.4 ships both 3.9 and 3.13,
-but uses 3.9 for persistent REST handlers, which is why `requirements.txt` pins
+**Python version:** handlers run under `targetPythonVersion`, the same interpreter as the jobs -
+the build sets `python.required` on each `[script:...]` stanza. Without it, Splunk 10.2+ runs a
+persistent handler under 3.9 regardless. The default target is 3.9, which is why `requirements.txt` pins
 `starlette<0.50.0`.
 
 ### Accessing Splunk Context

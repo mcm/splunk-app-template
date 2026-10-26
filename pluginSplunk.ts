@@ -36,6 +36,8 @@ export type PluginSplunkOptions = {
    * Invoked as `<pythonBin> -m pip`, not as `pip3.9`: Splunk ships `$SPLUNK_HOME/bin/pip3.9`
    * with a build-time shebang (`/builds/home/splunk/bin/python3.9`) that does not exist in
    * the shipped image, so the console script cannot be executed directly.
+   *
+   * Defaults to `python<targetPythonVersion>`.
    */
   pythonBin?: string;
   /**
@@ -694,7 +696,7 @@ const exposedMethods = (methods: string[]) => {
  `check_script_restmap_conf_python_required`. A classic `handler=module.Class` handler brings
  both into scope.
  */
-const makeRestmapConf = (handlers: Record<string, HandlerDescription>) => {
+const makeRestmapConf = (handlers: Record<string, HandlerDescription>, pythonSettings: string[]) => {
   const sections = [GENERATED_BY.trimEnd(), ''];
 
   for (const [name, handler] of Object.entries(handlers)) {
@@ -710,6 +712,10 @@ const makeRestmapConf = (handlers: Record<string, HandlerDescription>) => {
       `passPayload           = base64`,
       `passHttpHeaders       = true`,
       `passHttpCookies       = true`,
+      // The same interpreter as the jobs: handlers and jobs share lib/, and its compiled wheels
+      // are built for exactly one Python ABI. Without this a persistent handler runs under 3.9
+      // even on a 10.2+ release targeting 3.13, and fails to import its own dependencies.
+      ...pythonSettings,
       ''
     );
   }
@@ -1111,9 +1117,12 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
         try {
           temporaryDirectory = mkdtempSync(path.join(os.tmpdir(), "rsbuild-pluginSplunk-"));
 
-          const pythonBin = options.pythonBin || 'python3.9';
-          const libDir = `${temporaryDirectory}/lib`;
           const targetPythonVersion = options.targetPythonVersion || '3.9';
+          // Follows the target: pip resolves against the interpreter it runs under, so building a
+          // 3.13 app with 3.9 bundles dependency versions chosen for the wrong Python. Splunk's
+          // image (`docker compose up`) has both on PATH.
+          const pythonBin = options.pythonBin || `python${targetPythonVersion}`;
+          const libDir = `${temporaryDirectory}/lib`;
 
           /*
            Warn when the build interpreter is not the version the app will actually run under.
@@ -1387,11 +1396,10 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
             if (!(packageFileEnt.isFile() || packageFileEnt.isSymbolicLink())) continue;
             const fsFilePath = path.join(packageFileEnt.parentPath, packageFileEnt.name);
 
-            if (
-              fsFilePath.endsWith(".pyc") ||
-              fsFilePath.includes("__pycache__") ||
-              fsFilePath.includes(".dist-info") ||
-              fsFilePath.includes(".egg-info")) continue;
+            // `.dist-info` ships: packages read their own metadata at runtime -
+            // `importlib.metadata.version("splunk-sdk")` in splunklib 3, entry points in
+            // opentelemetry - and fail to import without it. App Inspect accepts it.
+            if (fsFilePath.endsWith(".pyc") || fsFilePath.includes("__pycache__")) continue;
             
             const packageFile = path.relative(temporaryDirectory, fsFilePath);
             
@@ -1584,7 +1592,7 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
         if (describedHandlers !== null && Object.keys(describedHandlers).length > 0) {
           emitGenerated(
             `../../default/restmap.conf`,
-            makeRestmapConf(describedHandlers),
+            makeRestmapConf(describedHandlers, makePythonSettings(minSplunkVersion, targetPythonVersion)),
             'default/restmap.conf'
           );
           emitGenerated(
@@ -1702,11 +1710,6 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
           compilation.deleteAsset(assetPath);
         }
 
-        if (normalizedAssetPath.startsWith("bin/") || normalizedAssetPath.startsWith("lib")) {
-          if (normalizedAssetPath.includes(".dist-info") || normalizedAssetPath.includes(".egg-info")) {
-            compilation.deleteAsset(assetPath);
-          }
-        }
       })
     })
   },
