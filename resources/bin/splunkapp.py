@@ -112,7 +112,8 @@ def scheduled(
                this is NOT the calling user; a modular input has no user context, unlike a
                REST handler's `Depends(current_splunk_user)`.
       state  - a durable dict, for checkpoints (see `JobState`)
-      log    - a stdlib Logger writing to $SPLUNK_HOME/var/log/splunk/
+      log    - a stdlib Logger writing to the app's file in $SPLUNK_HOME/var/log/splunk/
+               (see `get_logger`), tagged with the job's name
 
     Return either nothing (for a job that only writes to KV store or Splunk itself), an
     iterable of dicts (indexed as-is), or an iterable of `(epoch_seconds, dict)` tuples to set
@@ -597,31 +598,50 @@ class JobState:
 # --------------------------------------------------------------------------------------
 
 
-def _make_logger(app: str, job_name: str) -> Any:
-    """A logger that cannot corrupt the event stream.
+LOG_MAX_BYTES = 25_000_000
+LOG_BACKUP_COUNT = 5
+
+
+def log_file_name(app: str) -> str:
+    """`TA-my-app` -> `ta_my_app.log`, the naming Splunk's own add-ons use under var/log/splunk."""
+    return re.sub(r"[^a-z0-9]+", "_", app.lower()).strip("_") + ".log"
+
+
+def get_logger(app: str, component: str) -> Any:
+    """This app's log file, `$SPLUNK_HOME/var/log/splunk/<app>.log` (see `log_file_name`).
+
+    Every job and handler of the app writes to the one file, each line tagged with its
+    `component` - a job's name, or whatever a handler passes - and its pid. Splunk's stock
+    `[monitor://$SPLUNK_HOME/var/log/splunk]` indexes it into `_internal`; give it a stable
+    sourcetype with a `[source::...<app>.log*]` stanza in the app's props.conf, or splunkd
+    names it after the file and calls it `<name>-too_small` until it grows.
+
+    The file is opened on the first record, not here, so a module may call this at import:
+    the build imports handler modules to read their routes, on a machine with no
+    `$SPLUNK_HOME`.
 
     In a modular input stdout IS the data channel, so anything printed there is indexed as an
-    event, and stderr is logged by splunkd at ERROR regardless of what it says. Neither is
-    usable for ordinary diagnostics. A file under var/log/splunk is, and Splunk's stock
-    monitor indexes it into _internal automatically.
-
-    Never attach a StreamHandler here - logging's default stream is stderr.
+    event, and stderr is logged by splunkd at ERROR regardless of what it says. Never attach a
+    StreamHandler here - logging's default stream is stderr.
     """
     import logging
     import logging.handlers
 
-    logger = logging.getLogger("splunkapp.%s" % job_name)
+    logger = logging.getLogger("splunkapp.%s.%s" % (app, component))
     if logger.handlers:
         return logger
 
     logger.setLevel(logging.INFO)
-    log_directory = os.path.join(os.environ.get("SPLUNK_HOME", "/opt/splunk"), "var", "log", "splunk")
+    path = os.path.join(
+        os.environ.get("SPLUNK_HOME", "/opt/splunk"), "var", "log", "splunk", log_file_name(app)
+    )
     handler = logging.handlers.RotatingFileHandler(
-        os.path.join(log_directory, "%s.log" % app), maxBytes=5_000_000, backupCount=2
+        path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, delay=True
     )
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s job=" + job_name + " pid=%(process)d %(message)s")
-    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s pid=%(process)d component=" + component
+        + " %(module)s:%(lineno)d - %(message)s"
+    ))
     logger.addHandler(handler)
     logger.propagate = False
     return logger
@@ -790,7 +810,7 @@ def run(title: str = "Scheduled jobs", argv: Optional[List[str]] = None) -> int:
 
     config = _read_input_config(sys.stdin)
     job = _JOBS.get(config.job_name)
-    log = _make_logger(config.app or "splunkapp", config.job_name)
+    log = get_logger(config.app or "splunkapp", config.job_name)
 
     if job is None:
         log.error("no @scheduled job named %r is registered for stanza %s",

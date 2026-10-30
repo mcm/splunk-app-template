@@ -9,7 +9,7 @@ import os
 import sys
 import traceback
 from dataclasses import dataclass, field
-from typing import Any, ClassVar, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 from urllib.parse import urlencode, urlparse
 
 if TYPE_CHECKING:
@@ -23,14 +23,25 @@ except ImportError:
         pass
 
 
-logger = logging.getLogger("persistconn")
-
-
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 APP_LIB_DIR = os.path.join(APP_DIR, "lib")
 
 if os.path.exists(APP_LIB_DIR):
     sys.path.insert(0, APP_LIB_DIR)
+
+
+def _make_logger() -> logging.Logger:
+    """The app's own log file, shared with its jobs - so a handler that fails to load, or
+    raises outside FastAPI, is reported there rather than lost on stderr."""
+    try:
+        from splunkapp import get_logger
+
+        return get_logger(os.path.basename(APP_DIR), "persistconn")
+    except ImportError:
+        return logging.getLogger("persistconn")
+
+
+logger = _make_logger()
 
 
 BLOCKED_RESPONSE_HEADERS = [b"content-length"]
@@ -148,10 +159,6 @@ class ConnectionHandler:
     opcode: int
     handlers: dict[str, "ASGIApplication"] = field(default_factory=dict)  # pyright: ignore[reportInvalidTypeForm]
 
-    LOG_FORMAT: ClassVar[str] = (
-        '%(hostname)s %(remote_logname)s %(user_id)s %(asctime)s "%(request_line)s" %(status)s %(bytes)s'
-    )
-
     async def get_command(self):
         command: list[str] = []
         for i in range(await self.connection.read_number()):
@@ -228,16 +235,12 @@ class ConnectionHandler:
                 ),
             }
 
-        logger.info(
-            self.LOG_FORMAT,
-            extra={
-                "hostname": "127.0.0.1",
-                "remote_logname": "-",
-                "user_id": "?",
-                "request_line": "",
-                "status": "200",
-                "bytes": "2326",
-            },
+        # An access line per request, at DEBUG: one INFO line per page poll would bury
+        # everything else in the app's log.
+        logger.debug(
+            "%s %s status=%s bytes=%d",
+            request.method, request.path, response["status"],
+            len(asgi.response.body) if app is not None else 0,
         )
 
         await self.connection.write_string(json.dumps(response))

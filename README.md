@@ -392,6 +392,9 @@ Things worth knowing:
   user context**, unlike a REST route.
 - **Never `print()` in a job.** stdout is the event channel; anything written there is indexed
   as an event, and stderr is logged at ERROR regardless of content. That is why `log` exists.
+- **Logs go to one file per app**, `$SPLUNK_HOME/var/log/splunk/<app_id>.log` in snake case,
+  indexed into `_internal` as `sourcetype=<appId>:log`. Jobs get it as `log`; a REST handler
+  gets the same file with `splunkapp.get_logger(APP_ID, "api")`, safe to call at import.
 - **Return `(epoch_seconds, record)` tuples** when the source has its own notion of event time.
   Convert milliseconds to seconds — Splunk will cheerfully date an event to the year 58,500.
 - **`upsert` takes an explicit key**, so a repeated collection overwrites rather than

@@ -112,6 +112,18 @@ Everything under `backend/` lands in the app's `bin/`, which is the only directo
 `sys.path`. So a module there is importable by name from any other (`from quake_data import ...`),
 and a name that collides with something in `lib/` will lose.
 
+## Logging
+
+One file per app, `$SPLUNK_HOME/var/log/splunk/<app_id_snake_case>.log` (`TA-my-app` ->
+`ta_my_app.log`), shared by its jobs, its handlers and `persistconn.py`, each line tagged
+`component=<name>` with module and line. The build generates a monitor that gives it the
+sourcetype `<appId>:log` in `_internal`; without it splunkd names the file `<name>-too_small`.
+
+- A job gets it as `log`. A handler module calls `splunkapp.get_logger(APP_ID, "api")` at
+  import - the file opens on the first record, so the build's import of the module is safe
+- Rotates at 25MB, five backups. `logger.setLevel` per process is the only level control;
+  `log.cfg` does not apply
+
 ## Scheduled jobs and KV store
 
 ```python
@@ -133,7 +145,8 @@ either direction.
 - Pass exactly one of `seconds=` or `cron=`. Separate because first-run behaviour differs: a `seconds`
   job fires the moment Splunk registers the input — after a restart that is *before* KV store is
   ready — while a `cron` job waits for its first matching time
-- **Never `print()`** — stdout is the event channel. Use the injected `log`, which writes to a file
+- **Never `print()`** — stdout is the event channel. Use the injected `log`, which writes to the
+  app's log file (below)
 - Return nothing, an iterable of dicts, or of `(epoch_seconds, dict)`. Set the timestamp whenever the
   source has its own event time, and convert milliseconds to seconds — Splunk will cheerfully date an
   event to the year 58,500

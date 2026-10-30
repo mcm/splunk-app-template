@@ -485,8 +485,12 @@ const makeJobShim = (scheme: string, appTitle: string, jobModules: string[]) => 
   ].join('\n');
 }
 
+// Must match splunkapp.log_file_name: `TA-my-app` -> `ta_my_app.log`.
+const logFileName = (appId: string) =>
+  `${appId.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')}.log`;
+
 /*
- One stanza per job, plus the scheme stanza, plus a monitor for the job log.
+ One stanza per job, plus the scheme stanza, plus a monitor for the app log (jobs and handlers).
 
  Splunk already monitors `var/log/splunk`, but that stock monitor sets no sourcetype, so the
  file gets an auto-learned name of the form `<basename>-too_small` and the logs are effectively
@@ -514,9 +518,9 @@ const makeInputsConf = (
   }
 
   sections.push(
-    '# Job logs. Without an explicit sourcetype the stock var/log/splunk monitor auto-learns',
-    `# one named "${appId}-too_small", which is not something anyone will find by searching.`,
-    `[monitor://$SPLUNK_HOME/var/log/splunk/${appId}.log]`,
+    '# The app log. Without an explicit sourcetype the stock var/log/splunk monitor auto-learns',
+    `# one named "${logFileName(appId).replace(/\.log$/, '')}-too_small", which is not something anyone will find by searching.`,
+    `[monitor://$SPLUNK_HOME/var/log/splunk/${logFileName(appId)}]`,
     'index = _internal',
     `sourcetype = ${appId}:log`,
     'disabled = 0',
