@@ -158,6 +158,8 @@ either direction.
   compare a batch of incoming data against what is stored. With `fields` it returns projected
   dicts, not models. `iter_records(filter, fields)` streams raw records with `_key` included,
   which `query` (returning models) drops
+- `insert(key, value)` creates a record only if the key is free and returns False otherwise - one
+  of several racing inserts wins, cluster-wide, which is what a lock needs
 - `delete_where(filter)` deletes by query in one request, and is the safe way to delete a key
   containing `/`. An empty filter is refused — KV store reads that as "delete everything"
 - `collection(..., accelerated_fields={"by_status": {"status": 1, "severity": -1}})` declares KV

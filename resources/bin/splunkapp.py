@@ -466,6 +466,20 @@ class BoundCollection:
             _await_kvstore(lambda: self._store.update(key, json.dumps(document)), self._log)
         return key
 
+    def insert(self, key: str, value: Any) -> bool:
+        """Create the record at `key` only if there is none: False, and nothing written, if it
+        exists. KV store enforces key uniqueness, including across a search head cluster, so
+        exactly one of several racing inserts succeeds - the building block for a lock."""
+        document = value.model_dump(mode="json") if hasattr(value, "model_dump") else dict(value)
+        document["_key"] = key
+        try:
+            _await_kvstore(lambda: self._store.insert(json.dumps(document)), self._log)
+        except Exception as error:
+            if getattr(error, "status", None) == 409:
+                return False
+            raise
+        return True
+
     def batch_upsert(
         self,
         items: Iterable[Tuple[str, Any]],
