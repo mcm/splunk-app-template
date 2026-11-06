@@ -684,9 +684,14 @@ def get_logger(app: str, component: str) -> Any:
     handler = logging.handlers.RotatingFileHandler(
         path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, delay=True
     )
+    # Every prefix field is key=value, so Splunk's automatic extraction gives log_level,
+    # pid, component, module and line as fields with no props.conf. An unquoted value runs on
+    # through spaces to the next `;` or `,` that comes before another `=` - so `line`, the
+    # last field before the free-text message, is quoted, and a message carrying its own
+    # fields puts them after its prose and quotes any value with a space.
     handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s pid=%(process)d component=" + component
-        + " %(module)s:%(lineno)d - %(message)s"
+        "%(asctime)s log_level=%(levelname)s pid=%(process)d component=" + component
+        + " module=%(module)s line=\"%(lineno)d\" - %(message)s"
     ))
     logger.addHandler(handler)
     logger.propagate = False

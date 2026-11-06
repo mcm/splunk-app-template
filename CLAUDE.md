@@ -119,6 +119,13 @@ One file per app, `$SPLUNK_HOME/var/log/splunk/<app_id_snake_case>.log` (`TA-my-
 `component=<name>` with module and line. The build generates a monitor that gives it the
 sourcetype `<appId>:log` in `_internal`; without it splunkd names the file `<name>-too_small`.
 
+- The prefix is all `key=value` (`log_level=INFO pid=... component=... module=... line="..."`),
+  so Splunk extracts those fields without any props.conf. `line` is quoted because it comes
+  right before the free-text message. Put a message's own fields after its
+  prose and quote values with spaces or `|`: Splunk runs an unquoted value on through spaces
+  to the next `;` or `,` that comes before another `=` (`pair=a|b full sync, ...` became one
+  value)
+
 - A job gets it as `log`. A handler module calls `splunkapp.get_logger(APP_ID, "api")` at
   import - the file opens on the first record, so the build's import of the module is safe
 - Rotates at 25MB, five backups. `logger.setLevel` per process is the only level control;
