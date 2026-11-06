@@ -218,6 +218,8 @@ class Collection:
     name: str
     lookup: bool = False
     accelerated_fields: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    # Lookup definition name -> the fields it returns, or None for every field.
+    lookups: Dict[str, Optional[List[str]]] = field(default_factory=dict)
 
     def fields(self) -> Dict[str, str]:
         """Declared field types, derived from the model's annotations."""
@@ -276,17 +278,44 @@ def _validate_accelerated_fields(
     return dict(accelerated_fields)
 
 
+def _validate_lookups(model: Any, lookups: Dict[str, Optional[Iterable[str]]]) -> Dict[str, Optional[List[str]]]:
+    known = set(model.model_fields) | {"_key"}
+    validated = {}  # type: Dict[str, Optional[List[str]]]
+    for lookup_name, fields in lookups.items():
+        if not re.match(r"^[A-Za-z0-9_]+$", lookup_name):
+            raise ValueError("lookup name %r: use letters, digits and underscores" % lookup_name)
+        if fields is None:
+            validated[lookup_name] = None
+            continue
+        fields = [f for f in fields if f != "_key"]
+        unknown = [f for f in fields if f not in known]
+        if unknown:
+            raise ValueError("lookup %r: %s not fields of %s" % (lookup_name, ", ".join(unknown), model.__name__))
+        validated[lookup_name] = fields
+    return validated
+
+
 def collection(
     model: Any,
     name: Optional[str] = None,
     lookup: bool = False,
     accelerated_fields: Optional[Dict[str, Dict[str, int]]] = None,
+    lookups: Optional[Dict[str, Optional[Iterable[str]]]] = None,
 ) -> Collection:
     """Declare a KV store collection backed by a Pydantic model.
 
     `lookup=True` additionally generates a `transforms.conf` lookup definition, so the
     collection is usable from SPL as `| lookup <name>_lookup ...`. It is opt-in because most
     collections are app state that never needs to appear in a search.
+
+    `lookups` declares lookup definitions by name instead, each returning only the listed
+    fields (`_key` is always included), or every field for None. A definition's `fields_list`
+    is passed to KV store as a projection, so `| inputlookup` over a narrow definition moves
+    only those fields - `| fields` afterwards saves nothing, the records have already been
+    read. Give a collection of large records a narrow default and a separate full one:
+
+        collection(Finding, lookups={"findings_lookup": ["status", "severity"],
+                                     "findings_full_lookup": None})
 
     `accelerated_fields` declares KV store indexes, as `{name: {field: 1 | -1, ...}}`:
 
@@ -301,7 +330,10 @@ def collection(
         name=name or model.__name__.lower(),
         lookup=lookup,
         accelerated_fields=_validate_accelerated_fields(model, accelerated_fields or {}),
+        lookups=_validate_lookups(model, lookups or {}),
     )
+    if lookup:
+        declared.lookups.setdefault("%s_lookup" % declared.name, None)
     _COLLECTIONS.append(declared)
     return declared
 
@@ -793,7 +825,8 @@ def describe() -> Dict[str, Any]:
             {
                 "name": declared.name,
                 "fields": declared.fields(),
-                "lookup": declared.lookup,
+                "lookup": bool(declared.lookups),
+                "lookups": declared.lookups,
                 "accelerated_fields": declared.accelerated_fields,
                 "undeclarable": declared.undeclarable(),
             }

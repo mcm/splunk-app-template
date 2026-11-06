@@ -165,6 +165,10 @@ either direction.
 - `collection(..., accelerated_fields={"by_status": {"status": 1, "severity": -1}})` declares KV
   store indexes; field names are checked against the model at build time. Each index is
   maintained on every write, so accelerate only what queries filter or sort on
+- `collection(..., lookup=True)` generates one `<name>_lookup` definition of every field;
+  `lookups={"name": [fields] | None}` declares several. **`fields_list` is the KV store
+  projection** - `| inputlookup` reads exactly those fields, and `| fields` after it saves
+  nothing. Records with a large field want a narrow default definition and a separate full one
 - `collections.conf` field types come from the model's annotations. Only `number`, `bool`, `string` and
   `time` exist; a list-of-object field stores fine but is invisible to SPL — the build warns
 

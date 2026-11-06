@@ -424,6 +424,9 @@ type CollectionDescription = {
   name: string;
   fields: Record<string, string>;
   lookup: boolean;
+  // Lookup definition name -> its fields, or null for every field. Absent from a runtime that
+  // predates multiple lookups, where `lookup` alone means one `<name>_lookup` of every field.
+  lookups?: Record<string, string[] | null>;
   // Absent from a runtime that predates accelerations, hence optional.
   accelerated_fields?: Record<string, Record<string, number>>;
   undeclarable: string[];
@@ -588,20 +591,32 @@ const makeCollectionsConf = (collections: CollectionDescription[]) => {
 }
 
 /*
- Lookup definitions for collections that asked for one with `collection(..., lookup=True)`.
- Opt-in because most collections are app state that never needs to appear in a search, and
- because shipping transforms.conf at all has a cost - see the caller.
+ Lookup definitions for collections that asked for them, with `collection(..., lookup=True)` or
+ `lookups={...}`. Opt-in because most collections are app state that never needs to appear in
+ a search, and because shipping transforms.conf at all has a cost - see the caller.
+
+ `fields_list` is not cosmetic: splunkd passes it to KV store as the query's projection, so it
+ bounds what every `| inputlookup` of the definition reads.
  */
 const makeTransformsConf = (collections: CollectionDescription[]) => {
   const sections = [GENERATED_BY.trimEnd(), ''];
+  const seen = new Map<string, string>();
   for (const declared of collections) {
-    // `_key` first: it is the record's identity and the field a lookup is usually keyed on.
-    const fields = ['_key', ...Object.keys(declared.fields)];
-    sections.push(`[${declared.name}_lookup]`);
-    sections.push('external_type = kvstore');
-    sections.push(`collection = ${declared.name}`);
-    sections.push(`fields_list = ${fields.join(', ')}`);
-    sections.push('');
+    const lookups = declared.lookups ?? { [`${declared.name}_lookup`]: null };
+    for (const [lookupName, listed] of Object.entries(lookups)) {
+      const other = seen.get(lookupName);
+      if (other !== undefined) {
+        throw new Error(`Lookup ${lookupName} is declared by both ${other} and ${declared.name}.`);
+      }
+      seen.set(lookupName, declared.name);
+      // `_key` first: it is the record's identity and the field a lookup is usually keyed on.
+      const fields = ['_key', ...(listed ?? Object.keys(declared.fields))];
+      sections.push(`[${lookupName}]`);
+      sections.push('external_type = kvstore');
+      sections.push(`collection = ${declared.name}`);
+      sections.push(`fields_list = ${fields.join(', ')}`);
+      sections.push('');
+    }
   }
   return sections.join('\n');
 }
