@@ -377,7 +377,9 @@ Register it in `package.json` under `splunkApp.jobs`, exactly the way a page is 
 ```
 
 The build imports the module, reads the decorators, and generates the modular input runner,
-`inputs.conf`, `README/inputs.conf.spec` and `collections.conf`. **Do not write those by hand** —
+`inputs.conf`, `README/inputs.conf.spec` and `collections.conf`. Collections declared in a module no job
+imports (or before the app has any jobs) are found by listing that module in
+`splunkApp.collections`: `"collections": ["./backend/collections.py"]`. **Do not write those by hand** —
 a hand-written file wins over the generated one, which silently disables your declarations. If
 the job name in `package.json` and the decorated function name disagree in either direction, the
 build fails rather than shipping a job that never runs.

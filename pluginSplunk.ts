@@ -86,6 +86,13 @@ export type PluginSplunkOptions = {
    * applies after a version bump is noticed rather than silently skipped.
    */
   libPostInstall?: string;
+  /**
+   * Python modules that declare KV store collections with `collection()` outside any job
+   * module, e.g. `['./backend/collections.py']`. Job modules are always read for declarations
+   * too; this exists so an app can declare collections before it has a single job (one used
+   * only by REST handlers), which would otherwise generate no `collections.conf` at all.
+   */
+  collections?: string[];
   /** Human-readable app name, used in generated scheme XML and spec files. */
   appTitle?: string;
   /**
@@ -505,7 +512,9 @@ const makeInputsConf = (
   jobs: JobDescription[],
   pythonSettings: string[],
 ) => {
-  const sections = [GENERATED_BY.trimEnd(), '', `[${scheme}]`, ...pythonSettings, ''];
+  const sections = [GENERATED_BY.trimEnd(), ''];
+  // No scheme stanza without a job: the scheme's runner and spec are only shipped with one.
+  if (jobs.length > 0) sections.push(`[${scheme}]`, ...pythonSettings, '');
 
   for (const job of jobs) {
     if (job.description) sections.push(`# ${job.description}`);
@@ -943,6 +952,7 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
 
     const jobs = options.jobs || {};
     const jobNames = Object.keys(jobs);
+    const collectionModules = options.collections || [];
     const jobScheme = options.jobScheme || options.appId;
     const appTitle = options.appTitle || titleCase(options.appId);
 
@@ -1220,7 +1230,7 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
             PYTHONDONTWRITEBYTECODE: '1',
           });
 
-          if (handlerNames.length > 0 || jobNames.length > 0) {
+          if (handlerNames.length > 0 || jobNames.length > 0 || collectionModules.length > 0) {
             /*
              In its own directory, NOT in `temporaryDirectory`. Everything under that one is
              swept into `dist/` further down as bundled Python, so a script written there ships
@@ -1297,7 +1307,7 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
             }
           }
 
-          if (jobNames.length > 0 && introspectionDirectory) {
+          if ((jobNames.length > 0 || collectionModules.length > 0) && introspectionDirectory) {
             const jobModules: string[] = [];
 
             for (const [jobName, jobPath] of Object.entries(jobs)) {
@@ -1306,6 +1316,20 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
                 throw new Error(
                   `[splunk-plugin] splunkApp.jobs declares "${jobName}" at "${jobPath}", but no ` +
                   `such file exists.`
+                );
+              }
+              moduleDirectories.add(path.dirname(absolutePath));
+              const moduleName = path.basename(absolutePath, path.extname(absolutePath));
+              if (!jobModules.includes(moduleName)) jobModules.push(moduleName);
+            }
+
+            // Imported only for their collection() declarations; they register no jobs.
+            for (const modulePath of collectionModules) {
+              const absolutePath = path.resolve(rootPath, modulePath);
+              if (!existsSync(absolutePath)) {
+                throw new Error(
+                  `[splunk-plugin] splunkApp.collections names "${modulePath}", but no such file ` +
+                  `exists.`
                 );
               }
               moduleDirectories.add(path.dirname(absolutePath));
@@ -1621,24 +1645,39 @@ export const pluginSplunk = (options: PluginSplunkOptions): RsbuildPlugin => ({
           );
         }
 
-        if (described !== null) {
-          emitGenerated(
-            `../../bin/${jobScheme}.py`,
-            jobShimSource,
-            `bin/${jobScheme}.py`
-          );
-
-          const pythonSettings = makePythonSettings(minSplunkVersion, targetPythonVersion);
+        /*
+         The app log monitor rides in inputs.conf, and handlers log to the same file as jobs, so
+         an app with handlers but no jobs still gets inputs.conf - holding only the monitor.
+         The job runner and its spec ship only when there is a job for them to run: a scheme
+         splunkd discovers with nothing to schedule is noise in the inputs manager.
+         */
+        const describedJobs = described?.jobs || [];
+        if (describedJobs.length > 0 || handlerNames.length > 0) {
           emitGenerated(
             `../../default/inputs.conf`,
-            makeInputsConf(jobScheme, options.appId, described.jobs, pythonSettings),
+            makeInputsConf(
+              jobScheme,
+              options.appId,
+              describedJobs,
+              makePythonSettings(minSplunkVersion, targetPythonVersion)
+            ),
             'default/inputs.conf'
           );
-          emitGenerated(
-            `../../README/inputs.conf.spec`,
-            makeInputsSpec(jobScheme, appTitle, described.jobs),
-            'README/inputs.conf.spec'
-          );
+        }
+
+        if (described !== null) {
+          if (describedJobs.length > 0) {
+            emitGenerated(
+              `../../bin/${jobScheme}.py`,
+              jobShimSource,
+              `bin/${jobScheme}.py`
+            );
+            emitGenerated(
+              `../../README/inputs.conf.spec`,
+              makeInputsSpec(jobScheme, appTitle, described.jobs),
+              'README/inputs.conf.spec'
+            );
+          }
 
           const collections = described.collections;
           if (collections.length > 0) {

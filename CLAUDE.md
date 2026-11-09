@@ -149,6 +149,10 @@ Register it in `package.json` under `splunkApp.jobs` — `{"collect": "./backend
 mirroring `source.entry`. The key is the **function name**; the build fails if the two disagree in
 either direction.
 
+`collection()` declarations are read by importing the job modules. A collection declared in a
+module no job imports - or in an app with no jobs yet - needs that module listed in
+`splunkApp.collections` (`["./backend/collections.py"]`), or no `collections.conf` is generated.
+
 - Pass exactly one of `seconds=` or `cron=`. Separate because first-run behaviour differs: a `seconds`
   job fires the moment Splunk registers the input — after a restart that is *before* KV store is
   ready — while a `cron` job waits for its first matching time
